@@ -1,1 +1,4 @@
-plugins { id 'com.android.application' version '8.6.1' apply false }
+plugins { id 'com.android.application' }
+android { namespace 'hr.hub3a'; compileSdk 35
+ defaultConfig { applicationId 'hr.hub3a.generator'; minSdk 24; targetSdk 28; versionCode 1; versionName '1.0' } }
+dependencies { implementation 'com.google.zxing:core:3.5.3' }
