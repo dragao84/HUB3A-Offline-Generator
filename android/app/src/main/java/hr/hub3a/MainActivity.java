@@ -2,622 +2,836 @@
 package hr.hub3a;
 
 import android.app.Activity;
-import android.content.SharedPreferences;
 import android.app.AlertDialog;
-import android.os.Bundle;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.os.Bundle;
 import android.view.View;
 import android.widget.*;
+import android.text.InputType;
+import android.content.res.ColorStateList;
+
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.MultiFormatWriter;
 import com.google.zxing.EncodeHintType;
 import com.google.zxing.common.BitMatrix;
 import com.google.zxing.pdf417.encoder.Compaction;
-import java.util.*;
-import java.io.OutputStream;
-import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
+import com.google.zxing.pdf417.encoder.Dimensions;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
+
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.ByteArrayOutputStream;
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
 
 public class MainActivity extends Activity {
-    String[] keys = {
-        "Iznos (EUR)", "Primatelj", "Ulica primatelja",
-        "Pošta i mjesto primatelja", "IBAN primatelja",
-        "Model", "Poziv na broj", "Šifra namjene",
-        "Opis plaćanja", "Platitelj (opcionalno)",
-        "Ulica platitelja", "Pošta i mjesto platitelja"
+
+    private static final int PNG_REQUEST = 101;
+    private static final int IMPORT_REQUEST = 102;
+    private static final int EXPORT_REQUEST = 103;
+
+    private final String[] labels = {
+        "Iznos (EUR)",
+        "Primatelj",
+        "Ulica primatelja",
+        "Pošta i mjesto primatelja",
+        "IBAN primatelja",
+        "Model",
+        "Poziv na broj",
+        "Šifra namjene",
+        "Opis plaćanja",
+        "Platitelj (opcionalno)",
+        "Ulica platitelja",
+        "Pošta i mjesto platitelja"
     };
 
-    EditText[] fields = new EditText[keys.length];
-    Bitmap current;
-    JSONObject addressBook = new JSONObject();
-    Spinner payerSpinner, recipientSpinner;
-    boolean refreshing = false;
-
-    static final String[] PAYER_KEYS = {
+    private static final String[] PAYER_KEYS = {
         "payer", "payer_street", "payer_city"
     };
-    static final String[] RECIPIENT_KEYS = {
-        "recipient", "recipient_street", "recipient_city",
-        "iban", "model", "reference"
+
+    private static final String[] RECIPIENT_KEYS = {
+        "recipient", "recipient_street",
+        "recipient_city", "iban", "model", "reference"
     };
-    static final int[] PAYER_INDICES = {9, 10, 11};
-    static final int[] RECIPIENT_INDICES = {1, 2, 3, 4, 5, 6};
 
-    int navy = Color.rgb(21,36,60);
-    int blue = Color.rgb(33,91,227);
-    int muted = Color.rgb(98,113,138);
-    int background = Color.rgb(244,247,251);
+    private static final String[] ACCOUNT_KEYS = {
+        "label", "recipient", "recipient_street",
+        "recipient_city", "iban", "model", "reference"
+    };
 
-    int dp(float value) {
-        return (int)(getResources().getDisplayMetrics().density * value + .5f);
+    private static final String[] TEMPLATE_KEYS = {
+        "label", "recipient", "recipient_street",
+        "recipient_city", "iban", "model",
+        "reference", "purpose_code", "description"
+    };
+
+    private static final int[] PAYER_INDICES = {9, 10, 11};
+    private static final int[] RECIPIENT_INDICES = {
+        1, 2, 3, 4, 5, 6
+    };
+    private static final int[] ACCOUNT_INDICES = {
+        -1, 1, 2, 3, 4, 5, 6
+    };
+    private static final int[] TEMPLATE_INDICES = {
+        -1, 1, 2, 3, 4, 5, 6, 7, 8
+    };
+
+    private final EditText[] fields = new EditText[12];
+    private final Map<String, Spinner> selectors = new HashMap<>();
+
+    private JSONObject addressBook;
+    private Bitmap currentBarcode;
+    private boolean refreshing = false;
+
+    private final int navy = Color.rgb(21, 36, 60);
+    private final int blue = Color.rgb(33, 91, 227);
+    private final int muted = Color.rgb(98, 113, 138);
+    private final int background = Color.rgb(244, 247, 251);
+
+    private int dp(float value) {
+        return (int) (
+            getResources().getDisplayMetrics().density * value + 0.5f
+        );
     }
 
-    TextView text(String label, float sp, int color) {
-        TextView t = new TextView(this);
-        t.setText(label);
-        t.setTextSize(sp);
-        t.setTextColor(color);
-        return t;
+    private LinearLayout column() {
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        return layout;
     }
 
-    LinearLayout column() {
-        LinearLayout l = new LinearLayout(this);
-        l.setOrientation(LinearLayout.VERTICAL);
-        return l;
+    private TextView text(String value, int size, int color) {
+        TextView view = new TextView(this);
+        view.setText(value);
+        view.setTextSize(size);
+        view.setTextColor(color);
+        return view;
     }
 
-    void field(LinearLayout parent, int i) {
-        TextView label = text(keys[i], 13, navy);
+    private Button button(String value, boolean primary) {
+        Button result = new Button(this);
+        result.setText(value);
+        result.setAllCaps(false);
+        result.setTextColor(primary ? Color.WHITE : blue);
+        result.setBackgroundTintList(
+            ColorStateList.valueOf(
+                primary ? blue : Color.rgb(234, 240, 255)
+            )
+        );
+        return result;
+    }
+
+    private void addField(LinearLayout parent, int index) {
+        TextView label = text(labels[index], 13, navy);
         label.setTypeface(null, 1);
         parent.addView(label);
 
-        EditText e = new EditText(this);
-        e.setTextSize(16);
-        e.setSingleLine(true);
-        e.setPadding(dp(12), dp(7), dp(12), dp(7));
-        e.setBackgroundTintList(
-            android.content.res.ColorStateList.valueOf(blue)
-        );
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setTextSize(16);
+        input.setPadding(dp(12), dp(7), dp(12), dp(7));
+        input.setBackgroundTintList(ColorStateList.valueOf(blue));
 
-        if (i == 0)
-            e.setInputType(
-                android.text.InputType.TYPE_CLASS_NUMBER |
-                android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+        if (index == 0) {
+            input.setInputType(
+                InputType.TYPE_CLASS_NUMBER |
+                InputType.TYPE_NUMBER_FLAG_DECIMAL
             );
+        }
 
-        if (i == 5) e.setText("HR99");
-        fields[i] = e;
+        if (index == 5) input.setText("HR99");
 
-        LinearLayout.LayoutParams ep =
+        fields[index] = input;
+
+        LinearLayout.LayoutParams params =
             new LinearLayout.LayoutParams(-1, dp(55));
-        ep.bottomMargin = dp(15);
-        parent.addView(e, ep);
+        params.bottomMargin = dp(14);
+        parent.addView(input, params);
     }
 
     @Override
     public void onCreate(Bundle state) {
         super.onCreate(state);
+
         getWindow().setStatusBarColor(navy);
         getWindow().setNavigationBarColor(background);
 
         ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
         scroll.setBackgroundColor(background);
+        scroll.setFillViewport(true);
 
         LinearLayout page = column();
-        page.setPadding(dp(19), dp(18), dp(19), dp(28));
+        page.setPadding(dp(18), dp(18), dp(18), dp(30));
         scroll.addView(page);
 
-        TextView heading = text("HUB-3A  /  PDF417", 25, navy);
-        heading.setTypeface(null, 1);
-        page.addView(heading);
+        TextView title = text("HUB-3A / PDF417", 25, navy);
+        title.setTypeface(null, 1);
+        page.addView(title);
 
-        TextView tagline = text(
-            "Offline generator barkoda za račune i ponude", 13, muted
+        TextView subtitle = text(
+            "Offline generator barkoda za račune i ponude",
+            13, muted
         );
-        LinearLayout.LayoutParams tp =
-            new LinearLayout.LayoutParams(-1, -2);
-        tp.bottomMargin = dp(21);
-        page.addView(tagline, tp);
+        page.addView(subtitle);
 
-        LinearLayout card = column();
-        card.setPadding(dp(17), dp(17), dp(17), dp(12));
-        card.setBackgroundColor(Color.WHITE);
-        page.addView(card, new LinearLayout.LayoutParams(-1, -2));
-
-        TextView sub = text("Podaci za plaćanje", 19, navy);
-        sub.setTypeface(null, 1);
-        LinearLayout.LayoutParams sp =
-            new LinearLayout.LayoutParams(-1, -2);
-        sp.bottomMargin = dp(16);
-        card.addView(sub, sp);
-
-        for (int i = 0; i < 9; i++) field(card, i);
-
-        Button toggle = new Button(this);
-        toggle.setAllCaps(false);
-        toggle.setText("＋  Podaci platitelja (opcionalno)");
-        toggle.setTextColor(blue);
-        toggle.setBackgroundTintList(
-            android.content.res.ColorStateList.valueOf(
-                Color.rgb(234,240,255)
-            )
+        LinearLayout paymentCard = column();
+        paymentCard.setPadding(
+            dp(16), dp(18), dp(16), dp(12)
         );
+        paymentCard.setBackgroundColor(Color.WHITE);
 
-        LinearLayout.LayoutParams top =
-            new LinearLayout.LayoutParams(-1, dp(52));
-        top.topMargin = dp(14);
-        page.addView(toggle, top);
+        LinearLayout.LayoutParams paymentParams =
+            new LinearLayout.LayoutParams(-1, -2);
+        paymentParams.topMargin = dp(17);
+        page.addView(paymentCard, paymentParams);
 
-        LinearLayout extra = column();
-        extra.setPadding(dp(17), dp(16), dp(17), dp(10));
-        extra.setBackgroundColor(Color.WHITE);
-        extra.setVisibility(View.GONE);
+        TextView paymentTitle = text("Podaci za plaćanje", 19, navy);
+        paymentTitle.setTypeface(null, 1);
+        paymentCard.addView(paymentTitle);
 
-        for (int i = 9; i < 12; i++) field(extra, i);
-        page.addView(extra);
+        for (int i = 0; i < 9; i++) {
+            addField(paymentCard, i);
+        }
 
-        toggle.setOnClickListener(v -> {
-            boolean visible = extra.getVisibility() == View.VISIBLE;
-            extra.setVisibility(visible ? View.GONE : View.VISIBLE);
-            toggle.setText(
-                visible ? "＋  Podaci platitelja (opcionalno)"
-                        : "－  Sakrij podatke platitelja"
+        Button togglePayer = button(
+            "＋ Podaci platitelja (opcionalno)", false
+        );
+        page.addView(togglePayer);
+
+        LinearLayout payerCard = column();
+        payerCard.setPadding(
+            dp(16), dp(12), dp(16), dp(12)
+        );
+        payerCard.setBackgroundColor(Color.WHITE);
+
+        for (int i = 9; i < 12; i++) {
+            addField(payerCard, i);
+        }
+
+        payerCard.setVisibility(View.GONE);
+        page.addView(payerCard);
+
+        togglePayer.setOnClickListener(v -> {
+            boolean visible =
+                payerCard.getVisibility() == View.VISIBLE;
+            payerCard.setVisibility(
+                visible ? View.GONE : View.VISIBLE
+            );
+            togglePayer.setText(
+                visible
+                    ? "＋ Podaci platitelja (opcionalno)"
+                    : "－ Sakrij podatke platitelja"
             );
         });
 
         loadFields();
-        readContacts();
+        loadContacts();
 
-        LinearLayout book = column();
-        book.setPadding(dp(17), dp(16), dp(17), dp(16));
-        book.setBackgroundColor(Color.WHITE);
-
-        LinearLayout.LayoutParams bp =
-            new LinearLayout.LayoutParams(-1, -2);
-        bp.topMargin = dp(14);
-        page.addView(book, 2, bp);
-
-        TextView bookTitle = text(
-            "Adresari platitelja i primatelja", 19, navy
+        LinearLayout addressCard = column();
+        addressCard.setPadding(
+            dp(16), dp(18), dp(16), dp(16)
         );
-        bookTitle.setTypeface(null, 1);
-        book.addView(bookTitle);
+        addressCard.setBackgroundColor(Color.WHITE);
 
-        recipientSpinner = addContactRow(
-            book, "Primatelji", "recipients",
+        LinearLayout.LayoutParams addressParams =
+            new LinearLayout.LayoutParams(-1, -2);
+        addressParams.topMargin = dp(16);
+
+        page.addView(addressCard, 2, addressParams);
+
+        TextView addressTitle = text(
+            "Adresari, računi i predlošci", 19, navy
+        );
+        addressTitle.setTypeface(null, 1);
+        addressCard.addView(addressTitle);
+
+        addContactRow(
+            addressCard, "Primatelji", "recipients",
             RECIPIENT_KEYS, RECIPIENT_INDICES
         );
-        payerSpinner = addContactRow(
-            book, "Platitelji", "payers",
+
+        addContactRow(
+            addressCard, "Platitelji", "payers",
             PAYER_KEYS, PAYER_INDICES
         );
-        refreshContactMenus();
+
+        addContactRow(
+            addressCard, "Bankovni računi", "accounts",
+            ACCOUNT_KEYS, ACCOUNT_INDICES
+        );
+
+        addContactRow(
+            addressCard, "Predlošci plaćanja", "templates",
+            TEMPLATE_KEYS, TEMPLATE_INDICES
+        );
+
+        refreshMenus();
 
         LinearLayout transfer = new LinearLayout(this);
         transfer.setOrientation(LinearLayout.HORIZONTAL);
-        book.addView(transfer);
+        addressCard.addView(transfer);
 
-        Button export = contactButton("IZVEZI JSON");
-        Button imp = contactButton("UVEZI JSON");
+        Button export = button("IZVEZI JSON", false);
+        Button imp = button("UVEZI JSON", false);
+
         transfer.addView(
-            export, new LinearLayout.LayoutParams(0, dp(48), 1)
+            export,
+            new LinearLayout.LayoutParams(0, dp(50), 1)
         );
         transfer.addView(
-            imp, new LinearLayout.LayoutParams(0, dp(48), 1)
+            imp,
+            new LinearLayout.LayoutParams(0, dp(50), 1)
         );
 
         export.setOnClickListener(v -> {
-            Intent in = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-            in.addCategory(Intent.CATEGORY_OPENABLE);
-            in.setType("application/json");
-            in.putExtra(Intent.EXTRA_TITLE, "HUB3A_adresar.json");
-            startActivityForResult(in, 103);
+            Intent intent =
+                new Intent(Intent.ACTION_CREATE_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("application/json");
+            intent.putExtra(
+                Intent.EXTRA_TITLE, "HUB3A_adresar.json"
+            );
+            startActivityForResult(intent, EXPORT_REQUEST);
         });
 
         imp.setOnClickListener(v -> {
-            Intent in = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-            in.addCategory(Intent.CATEGORY_OPENABLE);
-            in.setType("application/json");
-            startActivityForResult(in, 102);
+            Intent intent =
+                new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("application/json");
+            startActivityForResult(intent, IMPORT_REQUEST);
         });
 
-        Button generate = new Button(this);
-        generate.setText("SPREMI PDF417 KAO PNG");
-        generate.setTextColor(Color.WHITE);
-        generate.setBackgroundTintList(
-            android.content.res.ColorStateList.valueOf(blue)
+        Button generate = button(
+            "SPREMI PDF417 KAO PNG", true
         );
+        LinearLayout.LayoutParams generateParams =
+            new LinearLayout.LayoutParams(-1, dp(58));
+        generateParams.topMargin = dp(18);
+        page.addView(generate, generateParams);
 
-        LinearLayout.LayoutParams gp =
-            new LinearLayout.LayoutParams(-1, dp(57));
-        gp.topMargin = dp(20);
-        page.addView(generate, gp);
-
-        Button remember = new Button(this);
-        remember.setText("ZAPAMTI PODATKE");
-        remember.setTextColor(blue);
-        remember.setBackgroundTintList(
-            android.content.res.ColorStateList.valueOf(
-                Color.rgb(234,240,255)
-            )
+        Button remember = button(
+            "ZAPAMTI PODATKE", false
         );
-
-        LinearLayout.LayoutParams rp =
-            new LinearLayout.LayoutParams(-1, dp(52));
-        rp.topMargin = dp(9);
-        page.addView(remember, rp);
+        page.addView(remember);
 
         remember.setOnClickListener(v -> {
             saveFields();
             Toast.makeText(
-                this, "Podaci su spremljeni na uređaju",
+                this,
+                "Podaci su spremljeni",
                 Toast.LENGTH_LONG
             ).show();
         });
 
-        TextView note = text(
-            "OFFLINE  •  Podaci ostaju na uređaju. Prije plaćanja provjerite očitane podatke.",
-            12, muted
-        );
-        LinearLayout.LayoutParams np =
-            new LinearLayout.LayoutParams(-1, -2);
-        np.topMargin = dp(17);
-        page.addView(note, np);
-
         generate.setOnClickListener(v -> {
             try {
-                current = encode(payload());
-                Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                currentBarcode = encode(payload());
+
+                Intent intent =
+                    new Intent(Intent.ACTION_CREATE_DOCUMENT);
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
                 intent.setType("image/png");
-                intent.putExtra(Intent.EXTRA_TITLE, "HUB3A_barkod.png");
-                startActivityForResult(intent, 101);
-            } catch (Exception ex) {
-                new AlertDialog.Builder(this)
-                    .setTitle("Provjera podataka")
-                    .setMessage(ex.getMessage())
-                    .setPositiveButton("U redu", null)
-                    .show();
+                intent.putExtra(
+                    Intent.EXTRA_TITLE, "HUB3A_barkod.png"
+                );
+                startActivityForResult(intent, PNG_REQUEST);
+
+            } catch (Exception error) {
+                showError(
+                    "Provjera podataka", error.getMessage()
+                );
             }
         });
+
+        TextView note = text(
+            "Podaci se obrađuju lokalno. Prije plaćanja provjerite IBAN i ostale podatke.",
+            12, muted
+        );
+        page.addView(note);
 
         setContentView(scroll);
     }
 
-    Button contactButton(String label) {
-        Button b = new Button(this);
-        b.setAllCaps(false);
-        b.setText(label);
-        b.setTextColor(blue);
-        b.setBackgroundTintList(
-            android.content.res.ColorStateList.valueOf(
-                Color.rgb(234,240,255)
-            )
-        );
-        return b;
+    private String[] sectionKeys(String section) {
+        switch (section) {
+            case "payers": return PAYER_KEYS;
+            case "recipients": return RECIPIENT_KEYS;
+            case "accounts": return ACCOUNT_KEYS;
+            default: return TEMPLATE_KEYS;
+        }
     }
 
-    JSONArray items(String section) {
-        JSONArray arr = addressBook.optJSONArray(section);
-        return arr == null ? new JSONArray() : arr;
+    private JSONArray items(String section) {
+        JSONArray result = addressBook.optJSONArray(section);
+        return result == null ? new JSONArray() : result;
     }
 
-    void readContacts() {
+    private void loadContacts() {
         try {
             String raw = getSharedPreferences(
                 "hub3a_contacts", MODE_PRIVATE
             ).getString("data", "");
 
             addressBook = raw.isEmpty()
-                ? new JSONObject() : new JSONObject(raw);
+                ? new JSONObject()
+                : new JSONObject(raw);
 
-            if (addressBook.optInt("version", 1) != 1)
+            if (addressBook.optInt("version", 1) != 1) {
                 throw new Exception("Nepodržana verzija adresara");
-
-            if (addressBook.optJSONArray("payers") == null)
-                addressBook.put("payers", new JSONArray());
-
-            if (addressBook.optJSONArray("recipients") == null)
-                addressBook.put("recipients", new JSONArray());
+            }
 
             addressBook.put("version", 1);
+
+            for (String section : new String[]{
+                "payers", "recipients", "accounts", "templates"
+            }) {
+                if (addressBook.optJSONArray(section) == null) {
+                    addressBook.put(section, new JSONArray());
+                }
+            }
         } catch (Exception ex) {
             addressBook = new JSONObject();
             try {
                 addressBook.put("version", 1);
-                addressBook.put("payers", new JSONArray());
-                addressBook.put("recipients", new JSONArray());
+                for (String section : new String[]{
+                    "payers", "recipients", "accounts", "templates"
+                }) {
+                    addressBook.put(section, new JSONArray());
+                }
             } catch (Exception ignored) {}
 
-            new AlertDialog.Builder(this)
-                .setMessage(
-                    "Adresar nije moguće učitati: " + ex.getMessage()
-                )
-                .setPositiveButton("U redu", null)
-                .show();
+            showError("Adresar", ex.getMessage());
         }
     }
 
-    void persistContacts() {
-        getSharedPreferences("hub3a_contacts", MODE_PRIVATE)
-            .edit()
-            .putString("data", addressBook.toString())
-            .apply();
+    private void persistContacts() {
+        getSharedPreferences(
+            "hub3a_contacts", MODE_PRIVATE
+        ).edit()
+         .putString("data", addressBook.toString())
+         .apply();
     }
 
-    void refreshContactMenus() {
+    private void refreshMenus() {
         refreshing = true;
-        for (String section : new String[]{"recipients", "payers"}) {
-            Spinner spinner = section.equals("payers")
-                ? payerSpinner : recipientSpinner;
+
+        for (String section : new String[]{
+            "recipients", "payers", "accounts", "templates"
+        }) {
+            Spinner spinner = selectors.get(section);
+            if (spinner == null) continue;
 
             ArrayList<String> names = new ArrayList<>();
             names.add("— Odaberi —");
 
-            JSONArray arr = items(section);
-            String key = section.equals("payers")
-                ? "payer" : "recipient";
+            String nameKey =
+                section.equals("payers") ? "payer"
+                : section.equals("recipients") ? "recipient"
+                : "label";
 
-            for (int i = 0; i < arr.length(); i++) {
+            JSONArray records = items(section);
+
+            for (int i = 0; i < records.length(); i++) {
+                JSONObject record = records.optJSONObject(i);
                 names.add(
                     (i + 1) + ". " +
-                    arr.optJSONObject(i).optString(key)
+                    (record == null ? "" :
+                     record.optString(nameKey, ""))
                 );
             }
 
             ArrayAdapter<String> adapter = new ArrayAdapter<>(
-                this, android.R.layout.simple_spinner_item, names
+                this,
+                android.R.layout.simple_spinner_item,
+                names
             );
             adapter.setDropDownViewResource(
                 android.R.layout.simple_spinner_dropdown_item
             );
             spinner.setAdapter(adapter);
         }
+
         refreshing = false;
     }
 
-    Spinner addContactRow(
+    private void addContactRow(
         LinearLayout parent,
         String caption,
         String section,
         String[] keys,
         int[] indices
     ) {
-        TextView label = text(caption, 14, navy);
-        label.setPadding(0, dp(12), 0, dp(3));
-        parent.addView(label);
+        TextView heading = text(caption, 14, navy);
+        heading.setTypeface(null, 1);
+        heading.setPadding(0, dp(12), 0, dp(4));
+        parent.addView(heading);
 
         Spinner spinner = new Spinner(this);
         parent.addView(spinner);
+        selectors.put(section, spinner);
 
         spinner.setOnItemSelectedListener(
-            new android.widget.AdapterView.OnItemSelectedListener() {
+            new AdapterView.OnItemSelectedListener() {
+                @Override
                 public void onNothingSelected(
-                    android.widget.AdapterView<?> p
+                    AdapterView<?> parent
                 ) {}
 
+                @Override
                 public void onItemSelected(
-                    android.widget.AdapterView<?> p,
-                    View v, int position, long id
+                    AdapterView<?> parent,
+                    View view, int position, long id
                 ) {
-                    if (!refreshing && position > 0) {
-                        JSONObject obj = items(section)
-                            .optJSONObject(position - 1);
+                    if (refreshing || position <= 0) return;
 
-                        if (obj != null)
-                            for (int i = 0; i < keys.length; i++)
-                                fields[indices[i]].setText(
-                                    obj.optString(keys[i], "")
-                                );
+                    JSONObject record = items(section)
+                        .optJSONObject(position - 1);
+
+                    if (record == null) return;
+
+                    for (int i = 0; i < keys.length; i++) {
+                        if (indices[i] >= 0) {
+                            fields[indices[i]].setText(
+                                record.optString(keys[i], "")
+                            );
+                        }
                     }
                 }
             }
         );
 
-        LinearLayout buttons = new LinearLayout(this);
-        parent.addView(buttons);
+        LinearLayout actions = new LinearLayout(this);
+        parent.addView(actions);
 
-        Button save = contactButton("Dodaj / Ažuriraj");
-        Button del = contactButton("Obriši");
+        Button save = button("Dodaj / Ažuriraj", false);
+        Button delete = button("Obriši", false);
 
-        buttons.addView(
-            save, new LinearLayout.LayoutParams(0, dp(48), 2)
+        actions.addView(
+            save, new LinearLayout.LayoutParams(0, dp(50), 2)
         );
-        buttons.addView(
-            del, new LinearLayout.LayoutParams(0, dp(48), 1)
+        actions.addView(
+            delete, new LinearLayout.LayoutParams(0, dp(50), 1)
         );
 
         save.setOnClickListener(v -> {
             try {
                 JSONObject entry = new JSONObject();
 
-                for (int i = 0; i < keys.length; i++)
-                    entry.put(keys[i], val(indices[i]));
+                for (int i = 0; i < keys.length; i++) {
+                    if (indices[i] >= 0) {
+                        entry.put(
+                            keys[i], val(indices[i])
+                        );
+                    }
+                }
 
-                if (val(indices[0]).isEmpty())
-                    throw new Exception(
-                        "Unesite naziv prije spremanja."
-                    );
+                if (indices[0] == -1) {
+                    int selected =
+                        spinner.getSelectedItemPosition() - 1;
 
-                JSONArray arr = items(section);
-                int index = spinner.getSelectedItemPosition() - 1;
+                    JSONObject existing =
+                        selected >= 0
+                        ? items(section).optJSONObject(selected)
+                        : null;
 
-                if (index >= 0 && index < arr.length())
-                    arr.put(index, entry);
-                else
-                    arr.put(entry);
+                    String previous =
+                        existing == null ? ""
+                        : existing.optString("label", "");
 
-                addressBook.put(section, arr);
-                persistContacts();
-                refreshContactMenus();
+                    EditText input = new EditText(this);
+                    input.setSingleLine(true);
+                    input.setText(previous);
 
-                Toast.makeText(
-                    this, "Adresar spremljen", Toast.LENGTH_SHORT
-                ).show();
+                    new AlertDialog.Builder(this)
+                        .setTitle("Naziv računa ili predloška")
+                        .setView(input)
+                        .setPositiveButton("Spremi", (dialog, which) -> {
+                            try {
+                                String name =
+                                    input.getText().toString().trim();
 
+                                if (name.isEmpty()) {
+                                    throw new Exception(
+                                        "Unesite naziv."
+                                    );
+                                }
+
+                                if (
+                                    section.equals("accounts") &&
+                                    entry.optString("iban").isEmpty()
+                                ) {
+                                    throw new Exception(
+                                        "Unesite IBAN."
+                                    );
+                                }
+
+                                entry.put("label", name);
+                                storeContact(
+                                    section, spinner, entry
+                                );
+                            } catch (Exception ex) {
+                                showError(
+                                    "Adresar", ex.getMessage()
+                                );
+                            }
+                        })
+                        .setNegativeButton("Odustani", null)
+                        .show();
+                } else {
+                    if (val(indices[0]).isEmpty()) {
+                        throw new Exception(
+                            "Unesite naziv."
+                        );
+                    }
+
+                    storeContact(section, spinner, entry);
+                }
             } catch (Exception ex) {
-                error(ex.getMessage());
+                showError("Adresar", ex.getMessage());
             }
         });
 
-        del.setOnClickListener(v -> {
+        delete.setOnClickListener(v -> {
             int index = spinner.getSelectedItemPosition() - 1;
             if (index < 0) return;
 
             new AlertDialog.Builder(this)
-                .setTitle("Obrisati zapis?")
+                .setTitle("Obrisati odabrani zapis?")
                 .setPositiveButton("Obriši", (dialog, which) -> {
                     try {
-                        JSONArray arr = items(section);
-                        arr.remove(index);
-                        addressBook.put(section, arr);
+                        JSONArray records = items(section);
+                        records.remove(index);
+                        addressBook.put(section, records);
                         persistContacts();
-                        refreshContactMenus();
+                        refreshMenus();
                     } catch (Exception ex) {
-                        error(ex.getMessage());
+                        showError(
+                            "Adresar", ex.getMessage()
+                        );
                     }
                 })
                 .setNegativeButton("Odustani", null)
                 .show();
         });
-
-        return spinner;
     }
 
-    void error(String message) {
-        new AlertDialog.Builder(this)
-            .setTitle("Adresar")
-            .setMessage(message)
-            .setPositiveButton("U redu", null)
-            .show();
+    private void storeContact(
+        String section, Spinner spinner, JSONObject entry
+    ) throws Exception {
+        JSONArray records = items(section);
+        int index = spinner.getSelectedItemPosition() - 1;
+
+        if (index >= 0 && index < records.length()) {
+            records.put(index, entry);
+        } else {
+            records.put(entry);
+        }
+
+        addressBook.put(section, records);
+        persistContacts();
+        refreshMenus();
+
+        Toast.makeText(
+            this, "Zapis spremljen", Toast.LENGTH_SHORT
+        ).show();
     }
 
-    JSONObject validatedContacts(JSONObject source) throws Exception {
-        if (source.optInt("version", -1) != 1)
-            throw new Exception("Nepodržana verzija adresara");
+    private JSONObject validateImport(JSONObject source)
+        throws Exception {
 
-        JSONObject clean = new JSONObject();
-        clean.put("version", 1);
+        if (source.optInt("version", -1) != 1) {
+            throw new Exception(
+                "Nepodržana verzija adresara."
+            );
+        }
 
-        for (String section : new String[]{"payers", "recipients"}) {
-            JSONArray arr = source.optJSONArray(section);
+        JSONObject cleaned = new JSONObject();
+        cleaned.put("version", 1);
 
-            if (arr == null || arr.length() > 1000)
-                throw new Exception("Neispravan popis: " + section);
+        for (String section : new String[]{
+            "payers", "recipients", "accounts", "templates"
+        }) {
+            JSONArray records = source.optJSONArray(section);
 
-            JSONArray out = new JSONArray();
+            if (
+                records == null &&
+                (section.equals("accounts") ||
+                 section.equals("templates"))
+            ) {
+                records = new JSONArray();
+            }
 
-            String[] keys = section.equals("payers")
-                ? PAYER_KEYS : RECIPIENT_KEYS;
+            if (records == null || records.length() > 1000) {
+                throw new Exception(
+                    "Neispravan popis: " + section
+                );
+            }
 
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject row = arr.optJSONObject(i);
-                if (row == null)
-                    throw new Exception("Neispravan zapis");
+            JSONArray output = new JSONArray();
+            String[] keys = sectionKeys(section);
+
+            for (int i = 0; i < records.length(); i++) {
+                JSONObject record = records.optJSONObject(i);
+
+                if (record == null) {
+                    throw new Exception(
+                        "Neispravan zapis."
+                    );
+                }
 
                 JSONObject copy = new JSONObject();
 
                 for (String key : keys) {
-                    Object value = row.opt(key);
+                    Object value = record.opt(key);
 
-                    if (value != null && !(value instanceof String))
+                    if (
+                        value != null &&
+                        value != JSONObject.NULL &&
+                        !(value instanceof String)
+                    ) {
                         throw new Exception(
                             "Neispravno polje: " + key
                         );
+                    }
 
-                    String s = row.optString(key, "");
-                    if (s.length() > 300)
-                        throw new Exception("Predugo polje");
+                    String data =
+                        record.optString(key, "");
 
-                    copy.put(key, s);
+                    if (data.length() > 300) {
+                        throw new Exception(
+                            "Predugo polje."
+                        );
+                    }
+
+                    copy.put(key, data);
                 }
 
-                if (copy.optString(keys[0]).trim().isEmpty())
-                    throw new Exception("Zapis bez naziva");
+                if (
+                    copy.optString(keys[0], "").trim().isEmpty()
+                ) {
+                    throw new Exception(
+                        "Zapis bez naziva."
+                    );
+                }
 
-                out.put(copy);
+                output.put(copy);
             }
 
-            clean.put(section, out);
+            cleaned.put(section, output);
         }
 
-        return clean;
+        return cleaned;
     }
 
-    void saveFields() {
+    private void saveFields() {
         SharedPreferences.Editor editor =
             getSharedPreferences(
                 "hub3a_fields", MODE_PRIVATE
             ).edit();
 
-        for (int i = 0; i < fields.length; i++)
+        for (int i = 0; i < fields.length; i++) {
             editor.putString(
                 "field_" + i,
                 fields[i].getText().toString()
             );
-
+        }
         editor.apply();
     }
 
-    void loadFields() {
-        SharedPreferences saved =
-            getSharedPreferences("hub3a_fields", MODE_PRIVATE);
+    private void loadFields() {
+        SharedPreferences saved = getSharedPreferences(
+            "hub3a_fields", MODE_PRIVATE
+        );
 
-        for (int i = 0; i < fields.length; i++)
-            if (saved.contains("field_" + i))
+        for (int i = 0; i < fields.length; i++) {
+            if (saved.contains("field_" + i)) {
                 fields[i].setText(
                     saved.getString("field_" + i, "")
                 );
+            }
+        }
     }
 
-    String val(int index) {
+    private String val(int index) {
         return fields[index].getText().toString().trim();
     }
 
-    String payload() {
-        BigDecimal amt;
+    private boolean validIban(String iban) {
+        if (!iban.matches("HR[0-9]{19}")) {
+            return false;
+        }
+
+        String reorganized =
+            iban.substring(4) + "1727" + iban.substring(2, 4);
+
+        int remainder = 0;
+        for (int i = 0; i < reorganized.length(); i++) {
+            remainder = (
+                remainder * 10 +
+                (reorganized.charAt(i) - '0')
+            ) % 97;
+        }
+
+        return remainder == 1;
+    }
+
+    private String payload() {
+        BigDecimal amount;
 
         try {
-            amt = new BigDecimal(val(0).replace(",", "."));
-            if (amt.signum() <= 0 || amt.scale() > 2)
+            amount = new BigDecimal(
+                val(0).replace(",", ".")
+            );
+
+            if (amount.signum() <= 0 || amount.scale() > 2) {
                 throw new Exception();
+            }
         } catch (Exception ex) {
             throw new IllegalArgumentException(
-                "Iznos mora biti pozitivan, najviše dvije decimale."
+                "Neispravan iznos."
             );
         }
 
-        String iban = val(4).replaceAll("\\s+", "")
-                            .toUpperCase(Locale.ROOT);
+        String iban = val(4)
+            .replaceAll("\\s+", "")
+            .toUpperCase(Locale.ROOT);
 
-        if (!iban.matches("HR[0-9]{19}") || !ibanValid(iban))
+        if (!validIban(iban)) {
             throw new IllegalArgumentException(
                 "Neispravan hrvatski IBAN."
             );
+        }
 
         String model = val(5).toUpperCase(Locale.ROOT);
-        if (!model.matches("HR[0-9]{2}"))
-            throw new IllegalArgumentException(
-                "Model mora biti HRxx."
-            );
 
-        if (val(1).isEmpty() || val(8).isEmpty())
+        if (!model.matches("HR[0-9]{2}")) {
             throw new IllegalArgumentException(
-                "Primatelj i opis plaćanja su obavezni."
+                "Neispravan model."
             );
+        }
+
+        if (val(1).isEmpty() || val(8).isEmpty()) {
+            throw new IllegalArgumentException(
+                "Unesite primatelja i opis."
+            );
+        }
 
         String[] lines = {
-            "HRVHUB30", "EUR",
+            "HRVHUB30",
+            "EUR",
             String.format(
                 Locale.ROOT, "%015d",
-                amt.movePointRight(2).longValueExact()
+                amount.movePointRight(2).longValueExact()
             ),
             val(9), val(10), val(11),
             val(1), val(2), val(3),
@@ -632,36 +846,26 @@ public class MainActivity extends Activity {
         String allowed =
             "[0-9A-Za-zČĆĐŠŽčćđšž ,.:+?'()/\\-]*";
 
-        StringBuilder b = new StringBuilder();
+        StringBuilder result = new StringBuilder();
 
         for (int i = 0; i < lines.length; i++) {
-            if (lines[i].length() > limits[i] ||
-                !lines[i].matches(allowed))
+            if (
+                lines[i].length() > limits[i] ||
+                !lines[i].matches(allowed)
+            ) {
                 throw new IllegalArgumentException(
-                    "Polje " + (i + 1) +
-                    " ima neispravan znak ili duljinu (max " +
-                    limits[i] + ")."
+                    "Neispravno polje " + (i + 1)
                 );
+            }
 
-            b.append(lines[i]).append('\n');
+            result.append(lines[i]).append('\n');
         }
 
-        return b.toString();
+        return result.toString();
     }
 
-    boolean ibanValid(String iban) {
-        String t = iban.substring(4) + "1727" + iban.substring(2, 4);
-        int rem = 0;
-
-        for (int i = 0; i < t.length(); i++)
-            rem = (rem * 10 + (t.charAt(i) - '0')) % 97;
-
-        return rem == 1;
-    }
-
-    Bitmap encode(String data) throws Exception {
+    private Bitmap encode(String value) throws Exception {
         Map<EncodeHintType, Object> hints = new HashMap<>();
-
         hints.put(EncodeHintType.CHARACTER_SET, "UTF-8");
         hints.put(EncodeHintType.ERROR_CORRECTION, 4);
         hints.put(EncodeHintType.PDF417_COMPACT, false);
@@ -672,28 +876,39 @@ public class MainActivity extends Activity {
         );
         hints.put(
             EncodeHintType.PDF417_DIMENSIONS,
-            new com.google.zxing.pdf417.encoder.Dimensions(
-                9, 9, 3, 90
-            )
+            new Dimensions(9, 9, 3, 90)
         );
 
-        BitMatrix bits = new MultiFormatWriter().encode(
-            data, BarcodeFormat.PDF_417, 1100, 550, hints
+        BitMatrix matrix = new MultiFormatWriter().encode(
+            value, BarcodeFormat.PDF_417,
+            1100, 550, hints
         );
 
-        Bitmap bitmap = Bitmap.createBitmap(
-            bits.getWidth(), bits.getHeight(),
+        Bitmap image = Bitmap.createBitmap(
+            matrix.getWidth(),
+            matrix.getHeight(),
             Bitmap.Config.ARGB_8888
         );
 
-        for (int y = 0; y < bits.getHeight(); y++)
-            for (int x = 0; x < bits.getWidth(); x++)
-                bitmap.setPixel(
+        for (int y = 0; y < matrix.getHeight(); y++) {
+            for (int x = 0; x < matrix.getWidth(); x++) {
+                image.setPixel(
                     x, y,
-                    bits.get(x, y) ? Color.BLACK : Color.WHITE
+                    matrix.get(x, y)
+                        ? Color.BLACK : Color.WHITE
                 );
+            }
+        }
 
-        return bitmap;
+        return image;
+    }
+
+    private void showError(String title, String message) {
+        new AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton("U redu", null)
+            .show();
     }
 
     @Override
@@ -702,28 +917,38 @@ public class MainActivity extends Activity {
     ) {
         super.onActivityResult(request, result, intent);
 
-        if (result == RESULT_OK &&
-            intent != null && request == 102) {
+        if (result != RESULT_OK || intent == null) {
+            return;
+        }
 
+        if (request == IMPORT_REQUEST) {
             try (
                 InputStream input =
-                    getContentResolver().openInputStream(intent.getData());
+                    getContentResolver().openInputStream(
+                        intent.getData()
+                    );
                 ByteArrayOutputStream buffer =
                     new ByteArrayOutputStream()
             ) {
-                if (input == null)
-                    throw new Exception("Datoteka nije dostupna");
-
-                byte[] chunk = new byte[4096];
-                int n;
-
-                while ((n = input.read(chunk)) != -1) {
-                    if (buffer.size() + n > 1048576)
-                        throw new Exception("Datoteka je prevelika");
-                    buffer.write(chunk, 0, n);
+                if (input == null) {
+                    throw new Exception(
+                        "Datoteka nije dostupna."
+                    );
                 }
 
-                JSONObject imported = validatedContacts(
+                byte[] chunk = new byte[4096];
+                int length;
+
+                while ((length = input.read(chunk)) != -1) {
+                    if (buffer.size() + length > 1048576) {
+                        throw new Exception(
+                            "Datoteka je prevelika."
+                        );
+                    }
+                    buffer.write(chunk, 0, length);
+                }
+
+                JSONObject imported = validateImport(
                     new JSONObject(
                         new String(
                             buffer.toByteArray(),
@@ -735,36 +960,42 @@ public class MainActivity extends Activity {
                 new AlertDialog.Builder(this)
                     .setTitle("Uvoz adresara")
                     .setMessage(
-                        "Zamijeniti postojeće lokalne adresare uvezenima?"
+                        "Zamijeniti sve postojeće adresare, račune i predloške?"
                     )
                     .setPositiveButton(
                         "Zamijeni",
                         (dialog, which) -> {
                             addressBook = imported;
                             persistContacts();
-                            refreshContactMenus();
+                            refreshMenus();
                         }
                     )
                     .setNegativeButton("Odustani", null)
                     .show();
 
             } catch (Exception ex) {
-                error(ex.getMessage());
+                showError(
+                    "Uvoz adresara", ex.getMessage()
+                );
             }
+
             return;
         }
 
-        if (result == RESULT_OK &&
-            intent != null && request == 103) {
-
+        if (request == EXPORT_REQUEST) {
             try (
-                OutputStream out =
-                    getContentResolver().openOutputStream(intent.getData())
+                OutputStream output =
+                    getContentResolver().openOutputStream(
+                        intent.getData()
+                    )
             ) {
-                if (out == null)
-                    throw new Exception("Nije moguće spremiti adresar");
+                if (output == null) {
+                    throw new Exception(
+                        "Spremanje nije uspjelo."
+                    );
+                }
 
-                out.write(
+                output.write(
                     addressBook.toString(2)
                         .getBytes(StandardCharsets.UTF_8)
                 );
@@ -775,24 +1006,33 @@ public class MainActivity extends Activity {
                 ).show();
 
             } catch (Exception ex) {
-                error(ex.getMessage());
+                showError(
+                    "Izvoz adresara", ex.getMessage()
+                );
             }
+
             return;
         }
 
-        if (request == 101 &&
-            result == RESULT_OK &&
-            intent != null) {
-
+        if (request == PNG_REQUEST) {
             try (
-                OutputStream out =
-                    getContentResolver().openOutputStream(intent.getData())
+                OutputStream output =
+                    getContentResolver().openOutputStream(
+                        intent.getData()
+                    )
             ) {
-                if (out == null ||
-                    !current.compress(
-                        Bitmap.CompressFormat.PNG, 100, out
-                    ))
-                    throw new Exception("Spremanje nije uspjelo");
+                if (
+                    output == null ||
+                    currentBarcode == null ||
+                    !currentBarcode.compress(
+                        Bitmap.CompressFormat.PNG,
+                        100, output
+                    )
+                ) {
+                    throw new Exception(
+                        "Spremanje PNG-a nije uspjelo."
+                    );
+                }
 
                 Toast.makeText(
                     this, "PNG spremljen",
@@ -800,10 +1040,9 @@ public class MainActivity extends Activity {
                 ).show();
 
             } catch (Exception ex) {
-                Toast.makeText(
-                    this, ex.getMessage(),
-                    Toast.LENGTH_LONG
-                ).show();
+                showError(
+                    "Spremanje barkoda", ex.getMessage()
+                );
             }
         }
     }
