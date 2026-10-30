@@ -47,10 +47,12 @@ header = tk.Frame(root, bg=NAVY, padx=27, pady=21)
 header.pack(fill='x')
 tk.Label(header, text='HUB-3A  /  PDF417', bg=NAVY, fg=WHITE,
          font=('Segoe UI', 21, 'bold')).pack(anchor='w')
-tk.Label(header,
-         text='Lokalni generator barkoda za račune i ponude  •  Bez interneta',
-         bg=NAVY, fg='#B8C9E7',
-         font=('Segoe UI', 10)).pack(anchor='w', pady=(4, 0))
+tk.Label(
+    header,
+    text='Lokalni generator barkoda za račune i ponude  •  Bez interneta',
+    bg=NAVY, fg='#B8C9E7',
+    font=('Segoe UI', 10)
+).pack(anchor='w', pady=(4, 0))
 
 area = tk.Frame(root, bg=BG)
 area.pack(fill='both', expand=True)
@@ -62,30 +64,44 @@ canvas.pack(side='left', fill='both', expand=True)
 
 content = tk.Frame(canvas, bg=BG, padx=26, pady=21)
 window = canvas.create_window((0, 0), window=content, anchor='nw')
-content.bind('<Configure>',
-             lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
-canvas.bind('<Configure>',
-            lambda e: canvas.itemconfigure(window, width=e.width))
-canvas.bind_all('<MouseWheel>',
-                lambda e: canvas.yview_scroll(-int(e.delta / 120), 'units'))
+content.bind(
+    '<Configure>',
+    lambda e: canvas.configure(scrollregion=canvas.bbox('all'))
+)
+canvas.bind(
+    '<Configure>',
+    lambda e: canvas.itemconfigure(window, width=e.width)
+)
+canvas.bind_all(
+    '<MouseWheel>',
+    lambda e: canvas.yview_scroll(-int(e.delta / 120), 'units')
+)
 
 vars = {}
 
 def card(title, subtitle):
-    outer = tk.Frame(content, bg=WHITE, padx=22, pady=17,
-                     highlightbackground=BORDER, highlightthickness=1)
+    outer = tk.Frame(
+        content, bg=WHITE, padx=22, pady=17,
+        highlightbackground=BORDER, highlightthickness=1
+    )
     outer.pack(fill='x', pady=(0, 15))
-    tk.Label(outer, text=title, fg=NAVY, bg=WHITE,
-             font=('Segoe UI', 13, 'bold')).pack(anchor='w')
-    tk.Label(outer, text=subtitle, fg=MUTED, bg=WHITE,
-             font=('Segoe UI', 9)).pack(anchor='w', pady=(3, 12))
+    tk.Label(
+        outer, text=title, fg=NAVY, bg=WHITE,
+        font=('Segoe UI', 13, 'bold')
+    ).pack(anchor='w')
+    tk.Label(
+        outer, text=subtitle, fg=MUTED, bg=WHITE,
+        font=('Segoe UI', 9)
+    ).pack(anchor='w', pady=(3, 12))
     return outer
 
 def add_field(parent, key, label, hint):
     row = tk.Frame(parent, bg=WHITE)
     row.pack(fill='x', pady=(0, 10))
-    tk.Label(row, text=label, bg=WHITE, fg=NAVY,
-             font=('Segoe UI', 10, 'bold')).pack(anchor='w', pady=(0, 5))
+    tk.Label(
+        row, text=label, bg=WHITE, fg=NAVY,
+        font=('Segoe UI', 10, 'bold')
+    ).pack(anchor='w', pady=(0, 5))
     var = tk.StringVar(value='HR99' if key == 'model' else '')
     entry = ttk.Entry(row, textvariable=var, font=('Segoe UI', 11))
     entry.pack(fill='x')
@@ -93,16 +109,35 @@ def add_field(parent, key, label, hint):
 
 CONTACT_FIELDS = {
     'payers': ('payer', 'payer_street', 'payer_city'),
-    'recipients': ('recipient', 'recipient_street',
-                   'recipient_city', 'iban', 'model', 'reference')
+    'recipients': (
+        'recipient', 'recipient_street', 'recipient_city',
+        'iban', 'model', 'reference'
+    ),
+    'accounts': (
+        'label', 'recipient', 'recipient_street', 'recipient_city',
+        'iban', 'model', 'reference'
+    ),
+    'templates': (
+        'label', 'recipient', 'recipient_street', 'recipient_city',
+        'iban', 'model', 'reference', 'purpose_code', 'description'
+    )
 }
 
-contacts = {'version': 1, 'payers': [], 'recipients': []}
+contacts = {
+    'version': 1,
+    'payers': [],
+    'recipients': [],
+    'accounts': [],
+    'templates': []
+}
 contact_selectors = {}
 
 def settings_path():
-    home = (Path(os.environ.get('APPDATA') or Path.home())
-            if os.name == 'nt' else Path.home() / '.config')
+    home = (
+        Path(os.environ.get('APPDATA') or Path.home())
+        if os.name == 'nt'
+        else Path.home() / '.config'
+    )
     directory = home / 'HUB3A_Generator'
     directory.mkdir(parents=True, exist_ok=True)
     return directory / 'saved_fields.json'
@@ -112,7 +147,7 @@ def contacts_path():
 
 def check_contacts(data):
     if not isinstance(data, dict) or data.get('version') != 1:
-        raise ValueError('Nepodržan format adresara (version mora biti 1).')
+        raise ValueError('Nepodržan format adresara.')
 
     checked = {'version': 1}
     for section, keys in CONTACT_FIELDS.items():
@@ -126,8 +161,10 @@ def check_contacts(data):
                 raise ValueError('Neispravan zapis adresara.')
 
             entry = {k: record.get(k, '') for k in keys}
-            if not all(isinstance(v, str) and len(v) <= 300
-                       for v in entry.values()):
+            if not all(
+                isinstance(v, str) and len(v) <= 300
+                for v in entry.values()
+            ):
                 raise ValueError('Neispravna vrijednost u adresaru.')
 
             if not entry[keys[0]].strip():
@@ -135,20 +172,23 @@ def check_contacts(data):
             out.append(entry)
 
         checked[section] = out
-
     return checked
 
 def write_contacts():
     path = contacts_path()
     tmp = path.with_suffix('.tmp')
-    tmp.write_text(json.dumps(contacts, ensure_ascii=False, indent=2),
-                   encoding='utf-8')
+    tmp.write_text(
+        json.dumps(contacts, ensure_ascii=False, indent=2),
+        encoding='utf-8'
+    )
     tmp.replace(path)
 
 def refresh_contacts():
     for section, combo in contact_selectors.items():
-        names = [entry[CONTACT_FIELDS[section][0]]
-                 for entry in contacts[section]]
+        names = [
+            entry[CONTACT_FIELDS[section][0]]
+            for entry in contacts[section]
+        ]
         combo['values'] = ['— Odaberi —'] + [
             f'{i+1}. {name}' for i, name in enumerate(names)
         ]
@@ -163,17 +203,41 @@ def apply_contact(section):
     if idx < 0:
         return
     for key, value in contacts[section][idx].items():
-        vars[key].set(value)
+        if key in vars:
+            vars[key].set(value)
+    if section in ('accounts', 'templates'):
+        status.set('Odabran zapis: provjerite IBAN prije izvoza.')
 
 def store_contact(section):
     keys = CONTACT_FIELDS[section]
-    entry = {key: vars[key].get().strip() for key in keys}
+    entry = {
+        key: vars[key].get().strip()
+        for key in keys if key != 'label'
+    }
+
+    if 'label' in keys:
+        from tkinter import simpledialog
+        old = (
+            contacts[section][selected_contact(section)]['label']
+            if selected_contact(section) >= 0 else ''
+        )
+        label = simpledialog.askstring(
+            'Naziv zapisa', 'Naziv računa / predloška:',
+            initialvalue=old, parent=root
+        )
+        if label is None:
+            return
+        entry['label'] = label.strip()
 
     if not entry[keys[0]]:
         messagebox.showwarning('Adresar', 'Prvo unesite naziv.')
         return
 
     idx = selected_contact(section)
+    if section == 'accounts' and not entry.get('iban'):
+        messagebox.showwarning('Račun', 'IBAN ne smije biti prazan.')
+        return
+
     if idx >= 0:
         contacts[section][idx] = entry
     else:
@@ -187,7 +251,6 @@ def remove_contact(section):
     idx = selected_contact(section)
     if idx < 0:
         return
-
     if messagebox.askyesno('Brisanje', 'Obrisati odabrani zapis?'):
         del contacts[section][idx]
         write_contacts()
@@ -200,12 +263,16 @@ def export_contacts():
         filetypes=[('JSON', '*.json')]
     )
     if path:
-        Path(path).write_text(json.dumps(contacts, ensure_ascii=False,
-                                        indent=2), encoding='utf-8')
+        Path(path).write_text(
+            json.dumps(contacts, ensure_ascii=False, indent=2),
+            encoding='utf-8'
+        )
         messagebox.showinfo('Izvoz', 'Adresar je izvezen.')
 
 def import_contacts():
-    path = filedialog.askopenfilename(filetypes=[('JSON', '*.json')])
+    path = filedialog.askopenfilename(
+        filetypes=[('JSON', '*.json')]
+    )
     if not path:
         return
 
@@ -215,34 +282,37 @@ def import_contacts():
         )
         if not messagebox.askyesno(
             'Uvoz adresara',
-            'Zamijeniti postojeće lokalne adresare uvezenima?'
+            'Zamijeniti SVE postojeće adresare, račune i predloške uvezenima?'
         ):
             return
 
         contacts.update(data)
         write_contacts()
         refresh_contacts()
-
     except Exception as exc:
         messagebox.showerror('Uvoz', str(exc))
 
 book = card(
-    'Adresari',
-    'Odaberi spremljenog platitelja ili primatelja. Iznos i opis se ne mijenjaju.'
+    'Adresari i računi',
+    'Odabirom računa popunjava se primatelj i IBAN. Iznos ostaje nepromijenjen.'
 )
 
 for section, title in [
     ('recipients', 'Primatelji'),
-    ('payers', 'Platitelji')
+    ('payers', 'Platitelji'),
+    ('accounts', 'Bankovni računi (više IBAN-a po primatelju)'),
+    ('templates', 'Predlošci plaćanja')
 ]:
-    tk.Label(book, text=title, bg=WHITE, fg=NAVY,
-             font=('Segoe UI', 10, 'bold')).pack(anchor='w')
+    tk.Label(
+        book, text=title, bg=WHITE, fg=NAVY,
+        font=('Segoe UI', 10, 'bold')
+    ).pack(anchor='w')
 
-    combo = ttk.Combobox(book, state='readonly',
-                         font=('Segoe UI', 10))
+    combo = ttk.Combobox(
+        book, state='readonly', font=('Segoe UI', 10)
+    )
     combo.pack(fill='x', pady=(4, 5))
     contact_selectors[section] = combo
-
     combo.bind(
         '<<ComboboxSelected>>',
         lambda event, kind=section: apply_contact(kind)
@@ -264,17 +334,19 @@ for section, title in [
 
 transfer = tk.Frame(book, bg=WHITE)
 transfer.pack(anchor='w')
-
-tk.Button(transfer, text='Izvezi JSON', command=export_contacts,
-          bg='#EAF0FF', fg=BLUE, relief='flat').pack(side='left', padx=(0, 9))
-tk.Button(transfer, text='Uvezi JSON', command=import_contacts,
-          bg='#EAF0FF', fg=BLUE, relief='flat').pack(side='left')
+tk.Button(
+    transfer, text='Izvezi JSON', command=export_contacts,
+    bg='#EAF0FF', fg=BLUE, relief='flat'
+).pack(side='left', padx=(0, 9))
+tk.Button(
+    transfer, text='Uvezi JSON', command=import_contacts,
+    bg='#EAF0FF', fg=BLUE, relief='flat'
+).pack(side='left')
 
 primary = card(
     'Podaci za plaćanje',
     'Unesi podatke koji će biti zapisani u barkod.'
 )
-
 for key, label, hint in FIELDS[:9]:
     add_field(primary, key, label, hint)
 
@@ -318,7 +390,9 @@ actions = card(
     'Izvoz i predložak',
     'PNG za Word ili PDF za ispis. Podatke možeš zapamtiti na uređaju.'
 )
-status = tk.StringVar(value='Spremno za generiranje • HUB-3A EUR')
+status = tk.StringVar(
+    value='Spremno za generiranje • HUB-3A EUR'
+)
 
 def remember():
     try:
@@ -344,12 +418,16 @@ def restore():
     try:
         path = settings_path()
         if path.exists():
-            saved = json.loads(path.read_text(encoding='utf-8'))
+            saved = json.loads(
+                path.read_text(encoding='utf-8')
+            )
             for key, var in vars.items():
                 if isinstance(saved.get(key), str):
                     var.set(saved[key])
     except Exception as ex:
-        messagebox.showwarning('Učitavanje predloška', str(ex))
+        messagebox.showwarning(
+            'Učitavanje predloška', str(ex)
+        )
 
 def save():
     try:
@@ -382,11 +460,12 @@ def save():
         status.set(
             'Provjerite unesene podatke ili generiranje barkoda.'
         )
-        messagebox.showerror('Provjera podataka', str(ex))
+        messagebox.showerror(
+            'Provjera podataka', str(ex)
+        )
 
 btnrow = tk.Frame(actions, bg=WHITE)
 btnrow.pack(fill='x')
-
 tk.Button(
     btnrow, text='SPREMI PNG ILI PDF',
     command=save, bg=BLUE, fg=WHITE,
@@ -415,13 +494,14 @@ tk.Label(
 ).pack(anchor='w', pady=(0, 15))
 
 restore()
-
 try:
     path = contacts_path()
     if path.exists():
         contacts.update(
             check_contacts(
-                json.loads(path.read_text(encoding='utf-8'))
+                json.loads(
+                    path.read_text(encoding='utf-8')
+                )
             )
         )
 except Exception as exc:
